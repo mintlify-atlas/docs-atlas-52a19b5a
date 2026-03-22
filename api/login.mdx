@@ -59,10 +59,10 @@ curl --request POST \
 
 Authentication succeeded. Two HTTP-only cookies are set on the response:
 
-| Cookie          | Value                                          | Expiry   |
-| --------------- | ---------------------------------------------- | -------- |
-| `access_token`  | Signed JWT (HMAC-SHA256)                       | 15 min   |
-| `refresh_token` | Cryptographically random 64-byte base64 string | 7 days   |
+| Cookie          | Value                                          | Cookie MaxAge | JWT Expiry |
+| --------------- | ---------------------------------------------- | ------------- | ---------- |
+| `access_token`  | Signed JWT (HMAC-SHA256)                       | 15 min        | `Jwt:ExpiryMinutes` (default 10 min) |
+| `refresh_token` | Cryptographically random 64-byte base64 string | 7 days        | N/A |
 
 Both cookies are set with `HttpOnly`, `Secure`, and `SameSite=Strict` flags.
 

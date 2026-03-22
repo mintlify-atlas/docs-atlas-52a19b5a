@@ -43,7 +43,7 @@ When called with a valid `access_token`:
 2. All non-revoked refresh tokens belonging to that user are marked as revoked (`IsRevoked = true`, `RevokedAt` set to current UTC time).
 3. Both the `access_token` and `refresh_token` cookies are deleted from the response.
 
-Existing access tokens already issued to other devices remain valid until they expire (up to 15 minutes). They cannot be refreshed after this call.
+Existing access tokens already issued to other devices remain valid until their JWT expiry (`Jwt:ExpiryMinutes`, default 10 minutes). They cannot be refreshed after this call because all refresh tokens have been revoked.
 
 ## Responses
 

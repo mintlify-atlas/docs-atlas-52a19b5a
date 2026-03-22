@@ -108,7 +108,7 @@ PasswordHash = BCrypt.Net.BCrypt.HashPassword(dto.Password)
 ```
 
 <Note>
-  The cost factor applied by BCrypt is the library default. The hash is stored in the `PasswordHash` column of the `Users` table.
+  BCrypt.Net-Next defaults to cost factor 11 (the same factor used in the dummy hash for user enumeration protection). The resulting hash is stored in the `PasswordHash` column of the `Users` table.
 </Note>
 
 ## What happens next

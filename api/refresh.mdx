@@ -44,7 +44,7 @@ On each successful call:
 
 1. The presented `refresh_token` is validated (not revoked, not expired).
 2. The old token is marked as revoked (`IsRevoked = true`).
-3. A new `access_token` cookie is issued (15-minute expiry).
+3. A new `access_token` cookie is issued (JWT expires in `Jwt:ExpiryMinutes`, default 10 min; cookie MaxAge is 15 min).
 4. A new `refresh_token` cookie is issued (7-day expiry).
 5. The new refresh token inherits the `FamilyId` of the old token, keeping the session lineage intact.
 
@@ -54,10 +54,10 @@ On each successful call:
 
 Token rotation succeeded. New cookies are set on the response:
 
-| Cookie          | Value                                           | Expiry |
-| --------------- | ----------------------------------------------- | ------ |
-| `access_token`  | New signed JWT (HMAC-SHA256)                    | 15 min |
-| `refresh_token` | New cryptographically random 64-byte base64 string | 7 days |
+| Cookie          | Value                                           | Cookie MaxAge | JWT Expiry |
+| --------------- | ----------------------------------------------- | ------------- | ---------- |
+| `access_token`  | New signed JWT (HMAC-SHA256)                    | 15 min        | `Jwt:ExpiryMinutes` (default 10 min) |
+| `refresh_token` | New cryptographically random 64-byte base64 string | 7 days     | N/A |
 
 Both cookies are set with `HttpOnly`, `Secure`, and `SameSite=Strict` flags.
 

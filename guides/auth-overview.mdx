@@ -32,10 +32,10 @@ JWT Secure API uses **HTTP-only cookies** to store both the short-lived access t
 
 Both tokens are delivered and consumed exclusively via cookies — nothing is returned in a JSON body.
 
-| Cookie | Lifetime | Purpose |
-|---|---|---|
-| `access_token` | 15 minutes | Authenticates requests to protected routes |
-| `refresh_token` | 7 days | Obtains a new access token without re-login |
+| Cookie | Cookie MaxAge | JWT Expiry | Purpose |
+|---|---|---|---|
+| `access_token` | 15 minutes | 10 min default (configurable via `Jwt:ExpiryMinutes`) | Authenticates requests to protected routes |
+| `refresh_token` | 7 days | N/A (opaque token) | Obtains a new access token without re-login |
 
 Every cookie is set with the following attributes:
 
@@ -100,7 +100,7 @@ SameSite=Strict — never sent in cross-site requests (CSRF mitigation)
     Call `POST /register` with a username and a strong password. The password is hashed with BCrypt before storage — the plaintext is never persisted.
   </Step>
   <Step title="Login">
-    Call `POST /login`. On success, the API sets an `access_token` cookie (15 min) and a `refresh_token` cookie (7 days). A new token **family** is created to track this login session.
+    Call `POST /login`. On success, the API sets an `access_token` cookie (MaxAge: 15 min; JWT expires in `Jwt:ExpiryMinutes`, default 10 min) and a `refresh_token` cookie (7 days). A new token **family** is created to track this login session.
   </Step>
   <Step title="Access protected routes">
     Include cookies on every request (browsers do this automatically). The `access_token` is read from the cookie and validated — no `Authorization` header is needed.

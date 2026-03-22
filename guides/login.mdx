@@ -54,10 +54,10 @@ curl -k -X POST https://localhost:5001/login \
 
 The response body is empty. Two cookies are set:
 
-| Cookie | Value | Max-Age | Attributes |
-|---|---|---|---|
-| `access_token` | Signed JWT | 15 minutes | `HttpOnly; Secure; SameSite=Strict` |
-| `refresh_token` | 64-byte random token (Base64) | 7 days | `HttpOnly; Secure; SameSite=Strict` |
+| Cookie | Value | Cookie Max-Age | JWT Expiry | Attributes |
+|---|---|---|---|---|
+| `access_token` | Signed JWT | 15 minutes | 10 min default (`Jwt:ExpiryMinutes`) | `HttpOnly; Secure; SameSite=Strict` |
+| `refresh_token` | 64-byte random (Base64) | 7 days | N/A | `HttpOnly; Secure; SameSite=Strict` |
 
 ```
 HTTP/1.1 200 OK

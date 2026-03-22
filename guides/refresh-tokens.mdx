@@ -18,7 +18,7 @@ When the `access_token` cookie expires, call `POST /refresh` to obtain a new tok
     The current `refresh_token` is immediately marked as `IsRevoked = true` in the database.
   </Step>
   <Step title="New token pair is issued">
-    A new `access_token` (JWT, 15 min) and a new `refresh_token` (7 days) are generated. The new refresh token inherits the `FamilyId` from the old one.
+    A new `access_token` JWT (expires in `Jwt:ExpiryMinutes`, default 10 min; cookie MaxAge 15 min) and a new `refresh_token` (7 days) are generated. The new refresh token inherits the `FamilyId` from the old one.
   </Step>
   <Step title="Cookies are updated">
     Both `access_token` and `refresh_token` cookies are overwritten with the new values.

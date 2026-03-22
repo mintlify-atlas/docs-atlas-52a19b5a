@@ -23,8 +23,8 @@ dotnet --version
 Clone the repository and navigate into it:
 
 ```bash
-git clone https://github.com/your-org/jwt-secure-api.git
-cd jwt-secure-api
+git clone https://github.com/Black-09/prueba.git
+cd prueba
 ```
 
 The API requires three environment variables at startup. If any are missing the process will exit with a descriptive error message.
@@ -121,9 +121,9 @@ curl -s -X POST https://localhost:5001/login \
 
 On success the API returns `200 OK` and sets two cookies:
 
-| Cookie | Lifetime | Description |
+| Cookie | Cookie MaxAge | Description |
 |---|---|---|
-| `access_token` | 15 minutes | JWT used to authenticate requests |
+| `access_token` | 15 minutes | JWT used to authenticate requests (JWT itself expires after `Jwt:ExpiryMinutes`, default 10 min) |
 | `refresh_token` | 7 days | Opaque token used to obtain a new access token |
 
 Both cookies are `HttpOnly`, `Secure`, and `SameSite=Strict`. The `-c cookies.txt` flag writes them to disk; `-b cookies.txt` sends them on subsequent requests.
@@ -159,7 +159,7 @@ curl -s -X POST https://localhost:5001/refresh \
 The API performs **refresh token rotation** on every call:
 
 1. The current `refresh_token` is validated and immediately revoked.
-2. A new `access_token` (15 min) and a new `refresh_token` (7 days) are issued and written back to `cookies.txt`.
+2. A new `access_token` (JWT expiry: 10 min default; cookie MaxAge: 15 min) and a new `refresh_token` (7 days) are issued and written back to `cookies.txt`.
 
 <Warning>
 If a refresh token is presented after it has already been used — indicating possible token theft — the API revokes **every token in the same token family** and forces the user to log in again. This is refresh token reuse detection.

@@ -40,7 +40,7 @@ This API is designed to be integrated into your application as the authenticatio
 
 ## Architecture overview
 
-```
+```text
 Client
   │
   ├── POST /register      → Create user account
@@ -56,7 +56,7 @@ The API uses **SQLite** as its database (via Entity Framework Core) and is confi
 ## Security model
 
 <Info>
-  Access tokens expire in **10 minutes** (configurable). Refresh tokens expire in **7 days**.
+  JWT access tokens expire in **10 minutes** by default (configurable via `Jwt:ExpiryMinutes`). The `access_token` cookie has a `MaxAge` of 15 minutes to provide a buffer for token refresh. Refresh tokens expire in **7 days**.
   All tokens are transported exclusively via HTTP-only cookies — they are never returned in response bodies.
 </Info>
 
@@ -67,7 +67,7 @@ The API uses **SQLite** as its database (via Entity Framework Core) and is confi
 | Password storage | BCrypt hashing (cost factor 11) |
 | Brute force | Account lockout + rate limiting |
 | Session hijacking | Refresh token reuse detection (family revocation) |
-| Token leakage | Short-lived access tokens (10 min) |
+| Token leakage | Short-lived access tokens (JWT: 10 min default, cookie MaxAge: 15 min) |
 | Database hygiene | Automatic cleanup of expired tokens |
 
 ## Get started

@@ -130,9 +130,9 @@ foreach (var t in tokens)
 ## After logout
 
 <Warning>
-  After calling either logout endpoint, any attempt to access a protected route with the old `access_token` will continue to succeed until the token's natural 15-minute expiry. JWTs are stateless and cannot be individually invalidated.
+  After calling either logout endpoint, any attempt to access a protected route with the old `access_token` will continue to succeed until the JWT's natural expiry (`Jwt:ExpiryMinutes`, default: 10 minutes). JWTs are stateless and cannot be individually invalidated.
 
-  To minimize this window, keep the access token lifetime short (default: 15 minutes).
+  To minimize this window, keep the access token lifetime short. The default is 10 minutes (configured via `Jwt:ExpiryMinutes` in `appsettings.json`).
 </Warning>
 
 To fully re-authenticate, the user must call `POST /login` again with their credentials.
