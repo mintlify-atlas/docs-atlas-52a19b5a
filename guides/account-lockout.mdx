@@ -1,0 +1,104 @@
+---
+title: "Account lockout"
+description: "How JWT Secure API protects against brute-force attacks using account lockout"
+---
+
+JWT Secure API enforces an account lockout policy to limit the damage of brute-force and credential-stuffing attacks. After a configurable number of consecutive failed login attempts, the account is temporarily locked and no further authentication is possible until the lock expires.
+
+## How it works
+
+The lockout logic lives in `AuthService.LoginWithRefresh`. Two constants control the behavior:
+
+```csharp
+private const int MaxFailedAttempts = 5;
+private static readonly TimeSpan LockDuration = TimeSpan.FromMinutes(15);
+```
+
+Each failed password check increments `User.FailedLoginAttempts`. When that counter reaches `MaxFailedAttempts`, the account is locked:
+
+```csharp
+user.FailedLoginAttempts++;
+
+if (user.FailedLoginAttempts >= MaxFailedAttempts)
+{
+    user.LockedUntil = DateTime.UtcNow.Add(LockDuration);
+    user.FailedLoginAttempts = 0;
+}
+```
+
+On every subsequent login attempt while the lock is active, the server returns `401 Unauthorized` immediately — without running BCrypt — and without revealing that the account is locked:
+
+```csharp
+if (user.LockedUntil.HasValue && user.LockedUntil > DateTime.UtcNow)
+    return null;
+```
+
+<Note>
+  The API returns the same `401 Unauthorized` response whether the password is wrong, the account is locked, or the user does not exist. This prevents attackers from distinguishing between these states.
+</Note>
+
+## Lockout lifecycle
+
+| Event | `FailedLoginAttempts` | `LockedUntil` |
+|---|---|---|
+| Account created | `0` | `null` |
+| 1st–4th failed attempt | Incremented (`1`–`4`) | `null` |
+| 5th failed attempt (threshold hit) | Reset to `0` | Set to `UtcNow + 15 min` |
+| Login attempt while locked | Unchanged | Unchanged (check short-circuits) |
+| Lock expires, next login succeeds | Reset to `0` | Cleared (`null`) |
+| Successful login (no prior lock) | Reset to `0` | Cleared (`null`) |
+
+## Auto-unlock
+
+There is no administrator action required to unlock an account. Once the 15-minute window passes, the condition `user.LockedUntil > DateTime.UtcNow` becomes false and the next login attempt is evaluated normally. On a successful login the fields are cleared:
+
+```csharp
+// Login successful — reset lockout state
+user.FailedLoginAttempts = 0;
+user.LockedUntil = null;
+await _db.SaveChangesAsync();
+```
+
+## User enumeration protection
+
+A timing side-channel can reveal whether a username exists: if the server skips the BCrypt hash check for unknown users, the response arrives faster than for known users (where BCrypt runs). JWT Secure API closes this gap by always running BCrypt, even when the user is not found:
+
+```csharp
+if (user == null)
+{
+    // Simulate BCrypt cost to prevent timing-based user enumeration
+    BCrypt.Net.BCrypt.Verify(password, "$2a$11$invalidhashpaddingtomatchcost000000000000000000000000000");
+    return null;
+}
+```
+
+The dummy hash uses the same `$2a$11$` work-factor prefix as real stored hashes, so the CPU time spent is equivalent.
+
+<Warning>
+  Never expose which condition caused a `401` in the response body or logs accessible to end users. Any differentiation between "wrong password", "account locked", and "user not found" can be exploited to enumerate valid usernames.
+</Warning>
+
+## Data model
+
+The lockout state is stored directly on the `User` entity:
+
+```csharp
+public class User
+{
+    public int Id { get; set; }
+    public string Username { get; set; } = string.Empty;
+    public string PasswordHash { get; set; } = string.Empty;
+
+    public int FailedLoginAttempts { get; set; } = 0;
+    public DateTime? LockedUntil { get; set; }
+}
+```
+
+| Field | Type | Purpose |
+|---|---|---|
+| `FailedLoginAttempts` | `int` | Running count of consecutive failures since last successful login or lockout |
+| `LockedUntil` | `DateTime?` | UTC timestamp after which the account is accessible again; `null` when not locked |
+
+<Tip>
+  Because `LockedUntil` is stored in UTC, there are no timezone issues when the API is deployed across regions or when the server clock changes.
+</Tip>

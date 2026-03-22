@@ -1,0 +1,129 @@
+---
+title: "Login"
+description: "Authenticate users and receive JWT tokens via the POST /login endpoint"
+---
+
+Exchange a username and password for two HTTP-only cookies: a short-lived `access_token` and a longer-lived `refresh_token`. The endpoint is rate-limited to **5 requests per minute**.
+
+## Request
+
+```bash
+POST https://localhost:5001/login
+Content-Type: application/json
+```
+
+```json
+{
+  "Username": "alice",
+  "Password": "Tr0ub4dor&3"
+}
+```
+
+### Optional headers
+
+| Header | Max length | Description |
+|---|---|---|
+| `X-Device-Id` | 128 characters | Identifies the device making the request. Stored with the refresh token. Truncated silently if longer than 128 chars. |
+| `User-Agent` | — | Captured automatically from the request. Stored with the refresh token for session context. |
+
+<Tip>
+  Sending `X-Device-Id` allows you to later identify which device a refresh token belongs to, which is useful for per-device session management.
+</Tip>
+
+## Curl examples
+
+```bash
+# Successful login — saves cookies to cookies.txt
+curl -k -c cookies.txt -X POST https://localhost:5001/login \
+  -H "Content-Type: application/json" \
+  -H "X-Device-Id: my-laptop-001" \
+  -d '{"Username": "alice", "Password": "Tr0ub4dor&3"}'
+```
+
+```bash
+# Wrong password — returns 401
+curl -k -X POST https://localhost:5001/login \
+  -H "Content-Type: application/json" \
+  -d '{"Username": "alice", "Password": "wrongpassword"}'
+# Response: 401 Unauthorized
+```
+
+## Responses
+
+### 200 OK — success
+
+The response body is empty. Two cookies are set:
+
+| Cookie | Value | Max-Age | Attributes |
+|---|---|---|---|
+| `access_token` | Signed JWT | 15 minutes | `HttpOnly; Secure; SameSite=Strict` |
+| `refresh_token` | 64-byte random token (Base64) | 7 days | `HttpOnly; Secure; SameSite=Strict` |
+
+```
+HTTP/1.1 200 OK
+Set-Cookie: access_token=<jwt>; max-age=900; path=/; secure; samesite=strict; httponly
+Set-Cookie: refresh_token=<token>; max-age=604800; path=/; secure; samesite=strict; httponly
+```
+
+<Note>
+  Neither token appears in the response body. They are only accessible through the browser cookie store, which blocks JavaScript access.
+</Note>
+
+### 401 Unauthorized
+
+Returned for any of the following:
+
+- Incorrect password
+- Non-existent username
+- Account is currently locked
+
+The response body is empty. No information is given about which condition was triggered.
+
+### 429 Too Many Requests
+
+More than 5 login attempts within a 60-second window from the same client returns `429 Too Many Requests`.
+
+## Cookie attributes
+
+```csharp
+new CookieOptions
+{
+    HttpOnly = true,           // not accessible via document.cookie
+    Secure   = true,           // HTTPS only
+    SameSite = SameSiteMode.Strict,  // no cross-site transmission
+    MaxAge   = TimeSpan.FromMinutes(15)  // access_token
+    // MaxAge = TimeSpan.FromDays(7)    // refresh_token
+}
+```
+
+## Account lockout
+
+The API tracks failed login attempts per user in the database.
+
+<Warning>
+  After **5 consecutive failed attempts**, the account is locked for **15 minutes**. All login attempts during the lock period return `401` immediately, without running the BCrypt check.
+</Warning>
+
+| State | Behavior |
+|---|---|
+| `FailedLoginAttempts` < 5 | BCrypt check runs; counter increments on failure |
+| `FailedLoginAttempts` reaches 5 | `LockedUntil = UtcNow + 15 min`; counter resets to 0 |
+| `LockedUntil` is set and in the future | Returns `401` immediately |
+| Successful login | `FailedLoginAttempts = 0`, `LockedUntil = null` |
+
+## User enumeration protection
+
+When the username does not exist in the database, the API still runs a BCrypt verification against a dummy hash:
+
+```csharp
+BCrypt.Net.BCrypt.Verify(
+    password,
+    "$2a$11$invalidhashpaddingtomatchcost000000000000000000000000000"
+);
+```
+
+This ensures the response time for a non-existent user is indistinguishable from the response time for an existing user with a wrong password. Timing-based user enumeration is not possible.
+
+## Token family creation
+
+On every successful login, a new **token family** (`FamilyId`) is created as a GUID. All refresh tokens issued through subsequent `POST /refresh` calls within the same session share this `FamilyId`. If a revoked token from the family is ever reused, the entire family is invalidated.

@@ -1,0 +1,116 @@
+---
+title: "User registration"
+description: "Register new users with the POST /register endpoint"
+---
+
+Create a new account by sending a JSON body to `POST /register`. No authentication is required. The endpoint is rate-limited to **5 requests per minute**.
+
+## Request
+
+```bash
+POST https://localhost:5001/register
+Content-Type: application/json
+```
+
+```json
+{
+  "Username": "alice",
+  "Password": "Tr0ub4dor&3"
+}
+```
+
+### Fields
+
+| Field | Type | Required | Constraints |
+|---|---|---|---|
+| `Username` | string | Yes | Non-empty, maximum 50 characters |
+| `Password` | string | Yes | See password rules below |
+
+## Password rules
+
+All four rules must be satisfied simultaneously:
+
+<Steps>
+  <Step title="Minimum length">
+    At least **8 characters** long.
+  </Step>
+  <Step title="Uppercase letter">
+    Contains at least one **uppercase** letter (A–Z).
+  </Step>
+  <Step title="Digit">
+    Contains at least one **digit** (0–9).
+  </Step>
+  <Step title="Symbol">
+    Contains at least one **non-alphanumeric** character (e.g. `!`, `@`, `#`, `&`, `*`).
+  </Step>
+</Steps>
+
+<Warning>
+  Passwords that fail any of these rules return a `400 Bad Request` with a descriptive message. The exact server message is: `La contraseña debe tener mínimo 8 caracteres, una mayúscula, un número y un símbolo.`
+</Warning>
+
+## Curl example
+
+```bash
+curl -k -X POST https://localhost:5001/register \
+  -H "Content-Type: application/json" \
+  -d '{"Username": "alice", "Password": "Tr0ub4dor&3"}'
+```
+
+## Responses
+
+### 200 OK — success
+
+Returns a plain text body:
+
+```
+Usuario creado
+```
+
+No cookies are set on registration. The user must call `POST /login` to obtain tokens.
+
+### 400 Bad Request — validation errors
+
+| Condition | Response body |
+|---|---|
+| Password does not meet requirements | `La contraseña debe tener mínimo 8 caracteres, una mayúscula, un número y un símbolo.` |
+| Username is empty or exceeds 50 characters | `Username inválido. Máximo 50 caracteres.` |
+| Username is already taken | `El usuario ya existe` |
+
+```bash
+# Example: weak password
+curl -k -X POST https://localhost:5001/register \
+  -H "Content-Type: application/json" \
+  -d '{"Username": "bob", "Password": "password"}'
+# Response 400: La contraseña debe tener mínimo 8 caracteres, una mayúscula, un número y un símbolo.
+
+# Example: duplicate username
+curl -k -X POST https://localhost:5001/register \
+  -H "Content-Type: application/json" \
+  -d '{"Username": "alice", "Password": "Tr0ub4dor&3"}'
+# Response 400: El usuario ya existe
+```
+
+### 429 Too Many Requests — rate limit exceeded
+
+The endpoint uses a fixed-window rate limiter: **5 requests per minute** per client. Exceeding this limit returns `429 Too Many Requests` with an empty body.
+
+```
+429 Too Many Requests
+```
+
+## Password storage
+
+Passwords are hashed with **BCrypt** before being stored. The plaintext password is never written to the database.
+
+```csharp
+PasswordHash = BCrypt.Net.BCrypt.HashPassword(dto.Password)
+```
+
+<Note>
+  The cost factor applied by BCrypt is the library default. The hash is stored in the `PasswordHash` column of the `Users` table.
+</Note>
+
+## What happens next
+
+After a successful registration, call `POST /login` with the same credentials to obtain an `access_token` and a `refresh_token` cookie.

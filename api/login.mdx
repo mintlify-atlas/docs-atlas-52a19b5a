@@ -1,0 +1,80 @@
+---
+title: "POST /login"
+description: "Authenticate a user and receive JWT tokens as HTTP-only cookies"
+---
+
+<Note>
+  Tokens are delivered exclusively as HTTP-only cookies. No token values appear in the response body. Use a cookie jar (e.g., `-c cookies.txt`) to persist them across requests.
+</Note>
+
+## Overview
+
+| Property      | Value                        |
+| ------------- | ---------------------------- |
+| Method        | `POST`                       |
+| Path          | `/login`                     |
+| Auth required | No                           |
+| Rate limited  | Yes — 5 requests per minute  |
+| Base URL      | `https://localhost:5001`     |
+
+## Request
+
+### Headers
+
+<ParamField header="X-Device-Id" type="string">
+  An optional device identifier. Trimmed and truncated to a maximum of 128 characters. Stored with the refresh token to identify which device the session belongs to.
+</ParamField>
+
+<ParamField header="User-Agent" type="string">
+  Captured automatically from the request. Stored with the refresh token for session tracking.
+</ParamField>
+
+### Body
+
+<ParamField body="Username" type="string" required>
+  The username of the account to authenticate.
+</ParamField>
+
+<ParamField body="Password" type="string" required>
+  The account password.
+</ParamField>
+
+### Example request
+
+```bash
+curl --request POST \
+  --url https://localhost:5001/login \
+  --header 'Content-Type: application/json' \
+  --header 'X-Device-Id: my-laptop' \
+  --cookie-jar cookies.txt \
+  --data '{
+    "Username": "alice",
+    "Password": "Passw0rd!"
+  }'
+```
+
+## Responses
+
+### 200 OK
+
+Authentication succeeded. Two HTTP-only cookies are set on the response:
+
+| Cookie          | Value                                          | Expiry   |
+| --------------- | ---------------------------------------------- | -------- |
+| `access_token`  | Signed JWT (HMAC-SHA256)                       | 15 min   |
+| `refresh_token` | Cryptographically random 64-byte base64 string | 7 days   |
+
+Both cookies are set with `HttpOnly`, `Secure`, and `SameSite=Strict` flags.
+
+The response body is empty.
+
+### 401 Unauthorized
+
+Returned in either of the following cases:
+
+- The username does not exist or the password is incorrect.
+- The account is temporarily locked due to 5 consecutive failed login attempts. The lockout lasts 15 minutes.
+
+<Note>
+  The response is intentionally identical for both "user not found" and "wrong password" to prevent username enumeration.
+</Note>

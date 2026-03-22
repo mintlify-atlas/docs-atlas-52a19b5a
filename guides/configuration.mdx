@@ -1,0 +1,136 @@
+---
+title: "Configuration"
+description: "Configure JWT Secure API using appsettings.json and environment variables"
+---
+
+JWT Secure API is configured through `appsettings.json` and environment variables. Environment variables always take priority over file-based settings — see [Environment variables](/guides/environment-variables) for details.
+
+## appsettings.json structure
+
+The minimal required configuration block:
+
+```json
+{
+  "Jwt": {
+    "Key": "",
+    "Issuer": "",
+    "Audience": "",
+    "ExpiryMinutes": 10
+  }
+}
+```
+
+### JWT fields
+
+| Field | Type | Description |
+|---|---|---|
+| `Jwt:Key` | string | HMAC-SHA256 signing key. Minimum 32 characters, enforced at startup. |
+| `Jwt:Issuer` | string | Token issuer string. Validated on every incoming request. |
+| `Jwt:Audience` | string | Token audience string. Validated on every incoming request. |
+| `Jwt:ExpiryMinutes` | integer | Access token lifetime in minutes. Defaults to `10` if missing or unparseable. |
+
+<Warning>
+  `Jwt:Key` must be **at least 32 characters**. If it is shorter, the application throws at startup:
+
+  ```
+  JWT Key demasiado corta (N chars). Mínimo 32 caracteres requeridos para HMAC-SHA256.
+  ```
+
+  Do not commit real keys to source control. Use environment variables or .NET user-secrets in development.
+</Warning>
+
+<Note>
+  Environment variables override `appsettings.json` values. `JWT__Key`, `JWT__Issuer`, and `JWT__Audience` set in the environment are read first; `appsettings.json` is only consulted when the environment variable is absent. See [Environment variables](/guides/environment-variables).
+</Note>
+
+### Complete example
+
+```json
+{
+  "Jwt": {
+    "Key": "super-secret-signing-key-minimum-32-chars!!",
+    "Issuer": "https://localhost:5001",
+    "Audience": "jwt-secure-api-clients",
+    "ExpiryMinutes": 10
+  },
+  "Logging": {
+    "LogLevel": {
+      "Default": "Information",
+      "Microsoft.AspNetCore": "Warning"
+    }
+  },
+  "AllowedHosts": "*"
+}
+```
+
+---
+
+## Database
+
+JWT Secure API uses **SQLite** with the database file `app.db`, located in the application's working directory.
+
+The connection string is hardcoded in `Program.cs`:
+
+```csharp
+options.UseSqlite("Data Source=app.db")
+```
+
+The schema is applied automatically via EF Core migrations on every startup:
+
+```csharp
+db.Database.Migrate();
+```
+
+No manual migration step is required. If `app.db` does not exist it is created on first run.
+
+---
+
+## Server
+
+| Setting | Value | Source |
+|---|---|---|
+| Default URL | `https://localhost:5001` | `builder.WebHost.UseUrls(...)` in `Program.cs` |
+| HTTPS redirection | Enabled | `app.UseHttpsRedirection()` |
+| Forwarded headers | Enabled (`X-Forwarded-For`, `X-Forwarded-Proto`) | `app.UseForwardedHeaders(...)` |
+
+The forwarded headers middleware is configured so the API works correctly behind a reverse proxy (nginx, Traefik, etc.) without any additional changes.
+
+---
+
+## Token lifetimes
+
+| Token | Lifetime | Source |
+|---|---|---|
+| Access token (JWT) | `Jwt:ExpiryMinutes` (default 10 min) | `JwtService.cs` — `_expiryMinutes` fallback `10` |
+| `access_token` cookie | 15 minutes (`MaxAge`) | `SetAuthCookies` in `Program.cs` |
+| `refresh_token` cookie | 7 days (`MaxAge`) | `SetAuthCookies` in `Program.cs` |
+| Refresh token (DB) | 7 days from issue | `AuthService.GenerateRefreshToken` |
+
+<Note>
+  The access token cookie `MaxAge` (15 min) is intentionally longer than the JWT expiry (`Jwt:ExpiryMinutes`, default 10 min). The cookie persists slightly longer to give the client a window to call `/refresh` before the cookie itself disappears.
+</Note>
+
+---
+
+## Background cleanup service
+
+`TokenCleanupService` is a hosted background service that removes stale refresh tokens from the database.
+
+| Property | Value |
+|---|---|
+| Run interval | Every **6 hours** |
+| Deletion threshold | Tokens whose `ExpiryDate` is more than **1 day** in the past |
+
+This runs automatically — no configuration is required.
+
+---
+
+## Rate limiting
+
+The `authPolicy` fixed-window rate limiter is applied to `/login` and `/register`:
+
+| Setting | Value |
+|---|---|
+| Max requests | 5 per window |
+| Window | 1 minute |
+| Queue limit | 0 (excess requests rejected immediately) |

@@ -1,0 +1,144 @@
+---
+title: "Authentication overview"
+description: "Understand the complete authentication flow of JWT Secure API"
+---
+
+JWT Secure API uses **HTTP-only cookies** to store both the short-lived access token and the long-lived refresh token. Tokens are never exposed in response bodies, never readable by JavaScript, and the API enforces HTTPS on every request.
+
+## Endpoints at a glance
+
+<CardGroup cols={3}>
+  <Card title="POST /register" icon="user-plus">
+    Create a new user account with username and password validation.
+  </Card>
+  <Card title="POST /login" icon="arrow-right-to-bracket">
+    Authenticate and receive `access_token` + `refresh_token` cookies.
+  </Card>
+  <Card title="POST /refresh" icon="rotate">
+    Rotate tokens. Old refresh token is revoked; new pair is issued.
+  </Card>
+  <Card title="POST /logout" icon="arrow-right-from-bracket">
+    Revoke the current refresh token and clear both cookies.
+  </Card>
+  <Card title="POST /logout-all" icon="circle-xmark">
+    Revoke every active refresh token for the user (all devices).
+  </Card>
+  <Card title="GET /secure" icon="lock">
+    Example protected route. Requires a valid `access_token` cookie.
+  </Card>
+</CardGroup>
+
+## Token storage
+
+Both tokens are delivered and consumed exclusively via cookies — nothing is returned in a JSON body.
+
+| Cookie | Lifetime | Purpose |
+|---|---|---|
+| `access_token` | 15 minutes | Authenticates requests to protected routes |
+| `refresh_token` | 7 days | Obtains a new access token without re-login |
+
+Every cookie is set with the following attributes:
+
+```
+HttpOnly=true   — not accessible to JavaScript (XSS mitigation)
+Secure=true     — only sent over HTTPS
+SameSite=Strict — never sent in cross-site requests (CSRF mitigation)
+```
+
+## Authentication flow
+
+```
+┌────────┐          ┌──────────────────┐           ┌──────────┐
+│ Client │          │  JWT Secure API  │           │    DB    │
+└───┬────┘          └────────┬─────────┘           └────┬─────┘
+    │                        │                          │
+    │  POST /login           │                          │
+    │  {Username, Password}  │                          │
+    │───────────────────────>│                          │
+    │                        │  Verify password hash    │
+    │                        │─────────────────────────>│
+    │                        │  Store refresh token     │
+    │                        │─────────────────────────>│
+    │  Set-Cookie:           │                          │
+    │    access_token (15m)  │                          │
+    │    refresh_token (7d)  │                          │
+    │<───────────────────────│                          │
+    │                        │                          │
+    │  GET /secure           │                          │
+    │  Cookie: access_token  │                          │
+    │───────────────────────>│                          │
+    │  200 OK                │                          │
+    │<───────────────────────│                          │
+    │                        │                          │
+    │  POST /refresh         │                          │
+    │  Cookie: refresh_token │                          │
+    │───────────────────────>│                          │
+    │                        │  Revoke old token        │
+    │                        │─────────────────────────>│
+    │                        │  Store new refresh token │
+    │                        │─────────────────────────>│
+    │  Set-Cookie:           │                          │
+    │    access_token (15m)  │                          │
+    │    refresh_token (7d)  │                          │
+    │<───────────────────────│                          │
+    │                        │                          │
+    │  POST /logout          │                          │
+    │  Cookie: refresh_token │                          │
+    │───────────────────────>│                          │
+    │                        │  Mark token IsRevoked    │
+    │                        │─────────────────────────>│
+    │  Delete-Cookie:        │                          │
+    │    access_token        │                          │
+    │    refresh_token       │                          │
+    │<───────────────────────│                          │
+```
+
+## Token lifecycle
+
+<Steps>
+  <Step title="Register">
+    Call `POST /register` with a username and a strong password. The password is hashed with BCrypt before storage — the plaintext is never persisted.
+  </Step>
+  <Step title="Login">
+    Call `POST /login`. On success, the API sets an `access_token` cookie (15 min) and a `refresh_token` cookie (7 days). A new token **family** is created to track this login session.
+  </Step>
+  <Step title="Access protected routes">
+    Include cookies on every request (browsers do this automatically). The `access_token` is read from the cookie and validated — no `Authorization` header is needed.
+  </Step>
+  <Step title="Refresh">
+    When the access token expires, call `POST /refresh`. The API validates the `refresh_token` cookie, revokes the old token, and issues a fresh pair. The new refresh token shares the same `FamilyId`.
+  </Step>
+  <Step title="Logout">
+    Call `POST /logout` to end the current session, or `POST /logout-all` to revoke all sessions across every device.
+  </Step>
+</Steps>
+
+## Security properties
+
+| Property | Mechanism |
+|---|---|
+| No tokens in response bodies | Tokens are set as `Set-Cookie` headers only |
+| HTTPS enforced | `app.UseHttpsRedirection()` redirects all HTTP traffic |
+| XSS protection | `HttpOnly=true` prevents JavaScript from reading cookies |
+| CSRF protection | `SameSite=Strict` blocks cross-origin cookie submission |
+| User enumeration prevention | BCrypt is always run, even for non-existent usernames |
+| Account lockout | 5 failed logins trigger a 15-minute lock |
+| Token reuse detection | Re-using a revoked refresh token revokes the entire token family |
+| Automatic token cleanup | Expired tokens are deleted from the database every 6 hours |
+
+## JWT claims
+
+Access tokens are signed with HMAC-SHA256 and contain the following claims:
+
+| Claim | Value |
+|---|---|
+| `sub` | User ID (integer) |
+| `name` | Username |
+| `jti` | Unique token ID (GUID) |
+| `iss` | Configured issuer |
+| `aud` | Configured audience |
+| `exp` | Expiry timestamp (UTC, no clock skew) |
+
+<Note>
+  `ClockSkew` is set to `TimeSpan.Zero`. Access tokens are rejected the instant they expire — there is no grace period.
+</Note>

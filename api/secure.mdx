@@ -1,0 +1,56 @@
+---
+title: "GET /secure"
+description: "A protected endpoint that demonstrates authentication enforcement"
+---
+
+## Overview
+
+| Property      | Value                          |
+| ------------- | ------------------------------ |
+| Method        | `GET`                          |
+| Path          | `/secure`                      |
+| Auth required | Yes (`access_token` cookie)    |
+| Rate limited  | No                             |
+| Base URL      | `https://localhost:5001`       |
+
+## Description
+
+This endpoint returns a plain-text `OK` response when the request carries a valid `access_token` cookie. It has no side effects and is useful for:
+
+- Verifying that your login and token flow is working correctly.
+- Confirming that a token is still valid before making other authenticated requests.
+- Testing your cookie setup in a new environment.
+
+## Request
+
+### Cookies
+
+| Cookie         | Required | Description                            |
+| -------------- | -------- | -------------------------------------- |
+| `access_token` | Yes      | Valid JWT issued during login or refresh. |
+
+### Example request
+
+```bash
+curl --request GET \
+  --url https://localhost:5001/secure \
+  --cookie cookies.txt
+```
+
+## Responses
+
+### 200 OK
+
+The request was authenticated successfully.
+
+```
+OK
+```
+
+### 401 Unauthorized
+
+Returned when the `access_token` cookie is missing, expired, or has an invalid signature.
+
+<Tip>
+  If you receive a 401 immediately after login, verify that your HTTP client is sending cookies with the request. The `access_token` cookie requires `Secure` and `SameSite=Strict`, so it will only be sent over HTTPS to the same origin.
+</Tip>

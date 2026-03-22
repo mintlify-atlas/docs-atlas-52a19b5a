@@ -1,0 +1,151 @@
+---
+title: "Environment variables"
+description: "Override configuration using environment variables for production deployments"
+---
+
+Environment variables take **priority over `appsettings.json`**. At startup, `Program.cs` reads each JWT setting using a `??` fallback chain — the environment variable is checked first, then the config file, then an exception is thrown if both are absent:
+
+```csharp
+var key = Environment.GetEnvironmentVariable("JWT__Key")
+    ?? builder.Configuration["Jwt:Key"]
+    ?? throw new Exception("JWT Key no configurada. Define la variable de entorno JWT__Key.");
+```
+
+<Warning>
+  Never commit secrets to source control. Keep `Jwt:Key`, `Jwt:Issuer`, and `Jwt:Audience` out of `appsettings.json` in production — supply them exclusively through environment variables or a secrets manager.
+</Warning>
+
+---
+
+## Required variables
+
+All three variables below are **required**. The application throws an exception at startup if any of them is missing from both the environment and `appsettings.json`.
+
+| Variable | Overrides | Requirement |
+|---|---|---|
+| `JWT__Key` | `Jwt:Key` | Minimum **32 characters** for HMAC-SHA256 |
+| `JWT__Issuer` | `Jwt:Issuer` | Any non-empty string; must match the issuer embedded in issued tokens |
+| `JWT__Audience` | `Jwt:Audience` | Any non-empty string; must match the audience embedded in issued tokens |
+
+<Note>
+  ASP.NET Core maps environment variable names to configuration keys by replacing `__` (double underscore) with `:`. This means `JWT__Key` maps to `Jwt:Key`, `JWT__Issuer` maps to `Jwt:Issuer`, and so on.
+</Note>
+
+---
+
+## Startup validation
+
+The following checks run before the application starts accepting requests:
+
+1. **Key missing** — neither `JWT__Key` nor `appsettings.json` `Jwt:Key` is set:
+   ```
+   JWT Key no configurada. Define la variable de entorno JWT__Key.
+   ```
+
+2. **Key too short** — the resolved key is fewer than 32 characters:
+   ```
+   JWT Key demasiado corta (N chars). Mínimo 32 caracteres requeridos para HMAC-SHA256.
+   ```
+
+3. **Issuer missing** — neither `JWT__Issuer` nor `appsettings.json` `Jwt:Issuer` is set:
+   ```
+   JWT Issuer no configurado. Define la variable de entorno JWT__Issuer.
+   ```
+
+4. **Audience missing** — neither `JWT__Audience` nor `appsettings.json` `Jwt:Audience` is set:
+   ```
+   JWT Audience no configurado. Define la variable de entorno JWT__Audience.
+   ```
+
+---
+
+## Setting environment variables
+
+<Tabs>
+  <Tab title="Shell (Linux/macOS)">
+    Export the variables before running the application:
+
+    ```bash
+    export JWT__Key="super-secret-signing-key-minimum-32-chars!!"
+    export JWT__Issuer="https://api.example.com"
+    export JWT__Audience="jwt-secure-api-clients"
+
+    dotnet run
+    ```
+
+    Or inline for a single invocation:
+
+    ```bash
+    JWT__Key="super-secret-signing-key-minimum-32-chars!!" \
+    JWT__Issuer="https://api.example.com" \
+    JWT__Audience="jwt-secure-api-clients" \
+    dotnet run
+    ```
+  </Tab>
+
+  <Tab title="Windows (cmd)">
+    ```cmd
+    set JWT__Key=super-secret-signing-key-minimum-32-chars!!
+    set JWT__Issuer=https://api.example.com
+    set JWT__Audience=jwt-secure-api-clients
+
+    dotnet run
+    ```
+  </Tab>
+
+  <Tab title="Docker">
+    Pass variables with the `-e` flag when running the container:
+
+    ```bash
+    docker run \
+      -e JWT__Key="super-secret-signing-key-minimum-32-chars!!" \
+      -e JWT__Issuer="https://api.example.com" \
+      -e JWT__Audience="jwt-secure-api-clients" \
+      -p 5001:5001 \
+      jwt-secure-api
+    ```
+  </Tab>
+
+  <Tab title="Docker Compose">
+    Add the variables to the `environment` section of your service:
+
+    ```yaml
+    services:
+      api:
+        image: jwt-secure-api
+        ports:
+          - "5001:5001"
+        environment:
+          JWT__Key: "super-secret-signing-key-minimum-32-chars!!"
+          JWT__Issuer: "https://api.example.com"
+          JWT__Audience: "jwt-secure-api-clients"
+    ```
+
+    For production, prefer an `.env` file or Docker secrets instead of inline values:
+
+    ```yaml
+    services:
+      api:
+        image: jwt-secure-api
+        env_file:
+          - .env.production
+    ```
+  </Tab>
+
+  <Tab title="dotnet user-secrets">
+    Use .NET user-secrets for local development to avoid storing secrets in `appsettings.json`:
+
+    ```bash
+    dotnet user-secrets init
+    dotnet user-secrets set "Jwt:Key" "super-secret-signing-key-minimum-32-chars!!"
+    dotnet user-secrets set "Jwt:Issuer" "https://localhost:5001"
+    dotnet user-secrets set "Jwt:Audience" "jwt-secure-api-clients"
+    ```
+
+    User-secrets are stored outside the project directory and are never committed to source control. They override `appsettings.json` but are overridden by actual environment variables.
+
+    <Note>
+      User-secrets are only available in the `Development` environment. They are not a substitute for environment variables in staging or production.
+    </Note>
+  </Tab>
+</Tabs>

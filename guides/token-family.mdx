@@ -1,0 +1,153 @@
+---
+title: "Token family and reuse detection"
+description: "How JWT Secure API detects refresh token reuse and protects against token theft"
+---
+
+Refresh token rotation improves security by issuing a new refresh token each time the client refreshes its access token and invalidating the old one. Alone, rotation still leaves a window: if an attacker steals a refresh token and uses it _after_ the legitimate client has already rotated, neither side is alerted.
+
+JWT Secure API closes this gap with **token family tracking** and **reuse detection**.
+
+## Token families
+
+Every refresh token has a `FamilyId` — a GUID that ties together all tokens produced from a single login session. When a user logs in, a new `FamilyId` is created. Every subsequent `/refresh` call inherits that same `FamilyId` rather than creating a new one.
+
+```csharp
+// Login — create a new family
+var familyId = Guid.NewGuid().ToString();
+var refreshToken = await GenerateRefreshToken(user.Id, deviceId, userAgent, ip, familyId);
+
+// Refresh — inherit the existing family
+var newRefreshToken = await auth.GenerateRefreshToken(
+    result.Value.user.Id, deviceId, userAgent, ip, result.Value.familyId);
+```
+
+This means every `RefreshToken` row in the database that belongs to the same session shares a `FamilyId`, forming a chain.
+
+## Reuse detection
+
+When a refresh request arrives, `GetUserFromRefreshToken` checks whether the presented token has already been revoked:
+
+```csharp
+if (stored.IsRevoked)
+{
+    await RevokeFamilyAsync(stored.FamilyId);
+    return null;
+}
+```
+
+If it has, the entire family is immediately revoked — every still-active token that shares the same `FamilyId` is marked `IsRevoked = true`:
+
+```csharp
+public async Task RevokeFamilyAsync(string familyId)
+{
+    var tokens = await _db.RefreshTokens
+        .Where(x => x.FamilyId == familyId && !x.IsRevoked)
+        .ToListAsync();
+
+    foreach (var t in tokens)
+    {
+        t.IsRevoked = true;
+        t.RevokedAt = DateTime.UtcNow;
+    }
+
+    await _db.SaveChangesAsync();
+}
+```
+
+The endpoint returns `401 Unauthorized`. The user must log in again to obtain a new family.
+
+## Normal rotation vs. attack scenario
+
+### Normal rotation
+
+```
+Login
+  └─ Token A issued  (FamilyId = X, IsRevoked = false)
+
+Client uses Token A → /refresh
+  └─ Token A marked IsRevoked = true
+  └─ Token B issued  (FamilyId = X, IsRevoked = false)
+
+Client uses Token B → /refresh
+  └─ Token B marked IsRevoked = true
+  └─ Token C issued  (FamilyId = X, IsRevoked = false)
+```
+
+| Token | FamilyId | IsRevoked | RevokedAt |
+|---|---|---|---|
+| A | X | `true` | set |
+| B | X | `true` | set |
+| C | X | `false` | `null` |
+
+### Attack scenario (stolen token reused)
+
+```
+Login
+  └─ Token A issued  (FamilyId = X, IsRevoked = false)
+
+Legitimate client uses Token A → /refresh
+  └─ Token A marked IsRevoked = true
+  └─ Token B issued  (FamilyId = X, IsRevoked = false)
+
+Attacker presents Token A (already revoked) → /refresh
+  └─ IsRevoked = true detected
+  └─ RevokeFamilyAsync(X) called
+  └─ Token B marked IsRevoked = true  ← legitimate client's active token terminated
+  └─ 401 Unauthorized returned
+```
+
+| Token | FamilyId | IsRevoked | Outcome |
+|---|---|---|---|
+| A | X | `true` (was already revoked) | Triggers family revocation |
+| B | X | `true` (force-revoked) | Legitimate client's session terminated |
+
+<Warning>
+  Family-wide revocation is intentionally aggressive. When reuse is detected it is impossible to determine which party is the attacker, so the entire session is terminated to protect the account. The user will need to log in again.
+</Warning>
+
+## Data model
+
+Reuse detection state is stored on the `RefreshToken` entity:
+
+```csharp
+public class RefreshToken
+{
+    public int Id { get; set; }
+    public string Token { get; set; } = null!;
+    public int UserId { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public DateTime ExpiryDate { get; set; }
+    public bool IsRevoked { get; set; }
+    public DateTime? RevokedAt { get; set; }
+    public string FamilyId { get; set; } = null!;
+    public string? DeviceId { get; set; }
+    public string? UserAgent { get; set; }
+    public string? IpAddress { get; set; }
+}
+```
+
+| Field | Type | Purpose |
+|---|---|---|
+| `FamilyId` | `string` (GUID) | Groups all tokens from a single login session |
+| `IsRevoked` | `bool` | `true` once the token has been used or force-revoked |
+| `RevokedAt` | `DateTime?` | UTC timestamp when the token was revoked; `null` if still active |
+
+## Background token cleanup
+
+`TokenCleanupService` runs every 6 hours as a hosted background service. It deletes tokens whose `ExpiryDate` is more than 1 day in the past:
+
+```csharp
+private static readonly TimeSpan Interval = TimeSpan.FromHours(6);
+
+// Inside ExecuteAsync:
+var cutoff = DateTime.UtcNow.AddDays(-1);
+await db.RefreshTokens
+    .Where(t => t.ExpiryDate < cutoff)
+    .ExecuteDeleteAsync(stoppingToken);
+```
+
+This keeps the `RefreshTokens` table from growing unboundedly. Revoked tokens from old sessions (including those terminated by reuse detection) are pruned automatically.
+
+<Note>
+  Tokens are kept for 1 day after their `ExpiryDate` rather than deleted immediately. This provides a short audit window — revoked/expired tokens remain queryable for forensic purposes before being purged.
+</Note>

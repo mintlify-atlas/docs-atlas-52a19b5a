@@ -1,0 +1,73 @@
+---
+title: "POST /refresh"
+description: "Rotate the refresh token and receive a new access token"
+---
+
+<Warning>
+  This API implements refresh token reuse detection. If a previously revoked refresh token is presented, the **entire token family** is immediately revoked, invalidating all active sessions for that user. This indicates a potential token theft.
+</Warning>
+
+## Overview
+
+| Property      | Value                                      |
+| ------------- | ------------------------------------------ |
+| Method        | `POST`                                     |
+| Path          | `/refresh`                                 |
+| Auth required | No (uses `refresh_token` cookie)           |
+| Rate limited  | No                                         |
+| Base URL      | `https://localhost:5001`                   |
+
+## Request
+
+This endpoint requires no request body. The `refresh_token` cookie must be present — it is set automatically during [login](/api/login) or a previous refresh.
+
+### Cookies
+
+| Cookie          | Required | Description                            |
+| --------------- | -------- | -------------------------------------- |
+| `refresh_token` | Yes      | Issued during login or last refresh.   |
+
+### Example request
+
+```bash
+curl --request POST \
+  --url https://localhost:5001/refresh \
+  --cookie cookies.txt \
+  --cookie-jar cookies.txt
+```
+
+The `-b cookies.txt` flag sends the stored `refresh_token` cookie. The `-c cookies.txt` flag saves the new cookies returned in the response, replacing the old ones.
+
+## How token rotation works
+
+On each successful call:
+
+1. The presented `refresh_token` is validated (not revoked, not expired).
+2. The old token is marked as revoked (`IsRevoked = true`).
+3. A new `access_token` cookie is issued (15-minute expiry).
+4. A new `refresh_token` cookie is issued (7-day expiry).
+5. The new refresh token inherits the `FamilyId` of the old token, keeping the session lineage intact.
+
+## Responses
+
+### 200 OK
+
+Token rotation succeeded. New cookies are set on the response:
+
+| Cookie          | Value                                           | Expiry |
+| --------------- | ----------------------------------------------- | ------ |
+| `access_token`  | New signed JWT (HMAC-SHA256)                    | 15 min |
+| `refresh_token` | New cryptographically random 64-byte base64 string | 7 days |
+
+Both cookies are set with `HttpOnly`, `Secure`, and `SameSite=Strict` flags.
+
+The response body is empty.
+
+### 401 Unauthorized
+
+Returned in any of the following cases:
+
+- The `refresh_token` cookie is missing.
+- The token does not exist in the database.
+- The token has expired.
+- The token has already been revoked (reuse detection triggered — all tokens in the same family are revoked).

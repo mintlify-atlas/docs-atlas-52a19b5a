@@ -1,0 +1,88 @@
+---
+title: "Introduction"
+description: "A secure ASP.NET Core REST API providing JWT-based authentication with refresh token rotation, device tracking, account lockout, and rate limiting."
+---
+
+## What is JWT Secure API?
+
+JWT Secure API is a production-ready authentication service built with ASP.NET Core. It implements a complete, security-hardened authentication flow using JSON Web Tokens (JWT) with HTTP-only cookies, refresh token rotation, and multiple layers of protection against common attacks.
+
+This API is designed to be integrated into your application as the authentication backend, handling user registration, login, session management, and logout — all with security best practices applied out of the box.
+
+## Key features
+
+<CardGroup cols={2}>
+  <Card title="Secure token storage" icon="cookie">
+    JWT access tokens and refresh tokens are stored in HTTP-only, Secure, SameSite=Strict cookies — never exposed to JavaScript.
+  </Card>
+  <Card title="Refresh token rotation" icon="rotate">
+    Every token refresh issues a new refresh token and revokes the old one. Reuse of a revoked token triggers immediate family-wide revocation.
+  </Card>
+  <Card title="Account lockout" icon="lock">
+    After 5 consecutive failed login attempts, the account is locked for 15 minutes to prevent brute-force attacks.
+  </Card>
+  <Card title="Rate limiting" icon="gauge">
+    Authentication endpoints are rate-limited to 5 requests per minute per IP address to prevent abuse.
+  </Card>
+  <Card title="Device tracking" icon="mobile">
+    Refresh tokens record the device ID, user agent, and IP address, giving you full visibility into active sessions.
+  </Card>
+  <Card title="Global logout" icon="right-from-bracket">
+    Users can revoke all active sessions across all devices in a single request.
+  </Card>
+  <Card title="BCrypt password hashing" icon="shield">
+    Passwords are hashed with BCrypt and the API uses a constant-time dummy verify to prevent user enumeration via timing.
+  </Card>
+  <Card title="Token cleanup" icon="trash">
+    A background service runs every 6 hours to automatically delete expired refresh tokens from the database.
+  </Card>
+</CardGroup>
+
+## Architecture overview
+
+```
+Client
+  │
+  ├── POST /register      → Create user account
+  ├── POST /login         → Issue access_token + refresh_token cookies
+  ├── POST /refresh       → Rotate refresh token, issue new access_token
+  ├── POST /logout        → Revoke current refresh token, clear cookies
+  ├── POST /logout-all    → Revoke all tokens for the user
+  └── GET  /secure        → Protected endpoint (requires valid access_token)
+```
+
+The API uses **SQLite** as its database (via Entity Framework Core) and is configured to run on `https://localhost:5001` by default. It enforces HTTPS redirection and correctly handles reverse proxy forwarded headers.
+
+## Security model
+
+<Info>
+  Access tokens expire in **10 minutes** (configurable). Refresh tokens expire in **7 days**.
+  All tokens are transported exclusively via HTTP-only cookies — they are never returned in response bodies.
+</Info>
+
+| Layer | Protection |
+|---|---|
+| Transport | HTTPS enforced, HTTP redirected |
+| Token storage | HTTP-only, Secure, SameSite=Strict cookies |
+| Password storage | BCrypt hashing (cost factor 11) |
+| Brute force | Account lockout + rate limiting |
+| Session hijacking | Refresh token reuse detection (family revocation) |
+| Token leakage | Short-lived access tokens (10 min) |
+| Database hygiene | Automatic cleanup of expired tokens |
+
+## Get started
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Run the API locally and make your first authenticated request in minutes.
+  </Card>
+  <Card title="API Reference" icon="code" href="/api/register">
+    Explore every endpoint with full parameter and response documentation.
+  </Card>
+  <Card title="Authentication guide" icon="key" href="/guides/auth-overview">
+    Understand the complete authentication flow from registration to logout.
+  </Card>
+  <Card title="Security features" icon="shield-halved" href="/guides/account-lockout">
+    Learn about account lockout, rate limiting, and token family protection.
+  </Card>
+</CardGroup>

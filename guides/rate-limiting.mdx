@@ -1,0 +1,98 @@
+---
+title: "Rate limiting"
+description: "How JWT Secure API uses fixed-window rate limiting to prevent abuse"
+---
+
+JWT Secure API applies a fixed-window rate limiter to authentication endpoints. This caps how many requests a single IP address can make within a rolling time window, reducing the blast radius of automated attacks even before account lockout kicks in.
+
+## Policy configuration
+
+The limiter is registered in `Program.cs` under the policy name `"authPolicy"`:
+
+```csharp
+builder.Services.AddRateLimiter(options =>
+{
+    options.AddFixedWindowLimiter("authPolicy", config =>
+    {
+        config.PermitLimit = 5;
+        config.Window = TimeSpan.FromMinutes(1);
+        config.QueueProcessingOrder = QueueProcessingOrder.OldestFirst;
+        config.QueueLimit = 0;
+    });
+});
+```
+
+| Parameter | Value | Meaning |
+|---|---|---|
+| `PermitLimit` | `5` | Maximum requests allowed per window per IP |
+| `Window` | `1 minute` | Length of each fixed window |
+| `QueueLimit` | `0` | No request queuing — excess requests are rejected immediately |
+| `QueueProcessingOrder` | `OldestFirst` | Order in which queued requests would be processed (irrelevant when `QueueLimit = 0`) |
+
+<Note>
+  With `QueueLimit = 0`, the 6th request within a 1-minute window receives `429 Too Many Requests` instantly rather than being held and retried.
+</Note>
+
+## Affected endpoints
+
+Only endpoints that accept credentials are rate-limited. Token refresh, logout, and protected resource endpoints are excluded.
+
+| Endpoint | Method | Rate-limited |
+|---|---|---|
+| `/login` | `POST` | Yes — `RequireRateLimiting("authPolicy")` |
+| `/register` | `POST` | Yes — `RequireRateLimiting("authPolicy")` |
+| `/refresh` | `POST` | No |
+| `/logout` | `POST` | No |
+| `/logout-all` | `POST` | No |
+| `/secure` | `GET` | No |
+
+The policy is applied at the endpoint level:
+
+```csharp
+app.MapPost("/login", ...)
+   .RequireRateLimiting("authPolicy");
+
+app.MapPost("/register", ...)
+   .RequireRateLimiting("authPolicy");
+```
+
+## IP extraction behind reverse proxies
+
+In production the API typically sits behind a load balancer or reverse proxy. Without additional configuration, `ctx.Connection.RemoteIpAddress` would return the proxy's IP instead of the client's, making the per-IP limit useless.
+
+JWT Secure API solves this by enabling `ForwardedHeaders` middleware before the rate limiter:
+
+```csharp
+app.UseForwardedHeaders(new ForwardedHeadersOptions
+{
+    ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto
+});
+
+app.UseRateLimiter();
+```
+
+With this in place, the real client IP from the `X-Forwarded-For` header is used as the partition key for the rate limiter.
+
+<Warning>
+  Only trust `X-Forwarded-For` headers that originate from your own trusted proxy. If the API is exposed directly to the internet without a proxy, a client can spoof this header to bypass per-IP limiting. Restrict `KnownProxies` or `KnownNetworks` on `ForwardedHeadersOptions` in that case.
+</Warning>
+
+## Example: 429 scenario
+
+A client sends 6 `POST /login` requests within the same 1-minute window:
+
+```bash
+# Requests 1–5 — succeed (or return 401 for bad credentials, but are processed)
+POST https://localhost:5001/login
+# Response: 200 OK  /  401 Unauthorized
+
+# Request 6 — rejected by rate limiter before reaching the handler
+POST https://localhost:5001/login
+# Response: 429 Too Many Requests
+```
+
+The `429` is returned by the ASP.NET Core rate limiting middleware; the `AuthService` and database are never touched for rejected requests.
+
+<Tip>
+  Rate limiting and account lockout are complementary controls. Rate limiting fires first (at the middleware layer, per IP) and account lockout fires second (at the service layer, per account). Together they protect against both distributed attacks from many IPs and targeted attacks against a single account.
+</Tip>

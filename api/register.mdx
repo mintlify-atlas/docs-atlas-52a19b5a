@@ -1,0 +1,92 @@
+---
+title: "POST /register"
+description: "Register a new user account"
+---
+
+<Note>
+  Authentication is not required for this endpoint. All requests are subject to rate limiting.
+</Note>
+
+## Overview
+
+| Property     | Value                        |
+| ------------ | ---------------------------- |
+| Method       | `POST`                       |
+| Path         | `/register`                  |
+| Auth required | No                          |
+| Rate limited | Yes — 5 requests per minute  |
+| Base URL     | `https://localhost:5001`     |
+
+## Request
+
+### Body
+
+<ParamField body="Username" type="string" required>
+  The username for the new account. Must not be empty or whitespace. Maximum 50 characters.
+</ParamField>
+
+<ParamField body="Password" type="string" required>
+  The password for the new account. Must satisfy all of the following:
+
+  - Minimum 8 characters
+  - At least one uppercase letter
+  - At least one digit
+  - At least one symbol (non-alphanumeric character)
+</ParamField>
+
+### Example request
+
+```bash
+curl --request POST \
+  --url https://localhost:5001/register \
+  --header 'Content-Type: application/json' \
+  --data '{
+    "Username": "alice",
+    "Password": "Passw0rd!"
+  }'
+```
+
+```json
+{
+  "Username": "alice",
+  "Password": "Passw0rd!"
+}
+```
+
+## Responses
+
+### 200 OK
+
+The user account was created successfully.
+
+```
+Usuario creado
+```
+
+### 400 Bad Request — password validation failure
+
+Returned when the password does not meet the complexity requirements.
+
+```
+La contraseña debe tener mínimo 8 caracteres, una mayúscula, un número y un símbolo.
+```
+
+### 400 Bad Request — invalid username
+
+Returned when the username is empty, whitespace-only, or exceeds 50 characters.
+
+```
+Username inválido. Máximo 50 caracteres.
+```
+
+### 400 Bad Request — username taken
+
+Returned when a user with the given username already exists.
+
+```
+El usuario ya existe
+```
+
+### 429 Too Many Requests
+
+Returned when the rate limit of 5 requests per minute has been exceeded. Wait 1 minute before retrying.

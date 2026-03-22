@@ -1,0 +1,56 @@
+---
+title: "POST /logout-all"
+description: "Revoke all active sessions across all devices"
+---
+
+<Note>
+  This endpoint revokes every active refresh token associated with your account — not just the current session. All devices (phone, desktop, other browsers) will be signed out and must re-authenticate.
+</Note>
+
+## Overview
+
+| Property      | Value                                  |
+| ------------- | -------------------------------------- |
+| Method        | `POST`                                 |
+| Path          | `/logout-all`                          |
+| Auth required | Yes (`access_token` cookie)            |
+| Rate limited  | No                                     |
+| Base URL      | `https://localhost:5001`               |
+
+## Request
+
+This endpoint requires no request body. A valid `access_token` cookie must be present. The user ID is extracted from the JWT claims (`sub` or `ClaimTypes.NameIdentifier`).
+
+### Cookies
+
+| Cookie         | Required | Description                               |
+| -------------- | -------- | ----------------------------------------- |
+| `access_token` | Yes      | Valid JWT used to identify the user.      |
+
+### Example request
+
+```bash
+curl --request POST \
+  --url https://localhost:5001/logout-all \
+  --cookie cookies.txt
+```
+
+## Behavior
+
+When called with a valid `access_token`:
+
+1. The user ID is extracted from the JWT `sub` claim (or `ClaimTypes.NameIdentifier`).
+2. All non-revoked refresh tokens belonging to that user are marked as revoked (`IsRevoked = true`, `RevokedAt` set to current UTC time).
+3. Both the `access_token` and `refresh_token` cookies are deleted from the response.
+
+Existing access tokens already issued to other devices remain valid until they expire (up to 15 minutes). They cannot be refreshed after this call.
+
+## Responses
+
+### 200 OK
+
+All sessions revoked. Both cookies are cleared. The response body is empty.
+
+### 401 Unauthorized
+
+Returned when the `access_token` cookie is missing, expired, or invalid, or when the JWT does not contain a valid user ID claim.

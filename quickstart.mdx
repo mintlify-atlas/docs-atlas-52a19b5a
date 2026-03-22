@@ -1,80 +1,194 @@
 ---
 title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+description: "Run the JWT Secure API locally and make your first authenticated request"
 ---
 
-## Get started in three steps
+<Steps>
 
-Get your documentation site running locally and make your first customization.
+<Step title="Prerequisites">
 
-### Step 1: Set up your local environment
+You need the [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0) installed on your machine.
 
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
-    
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
-    
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
+Verify your installation:
 
-### Step 2: Deploy your changes
+```bash
+dotnet --version
+# Should output 10.x.x
+```
 
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
+</Step>
 
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
+<Step title="Clone and configure">
 
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
+Clone the repository and navigate into it:
 
-### Step 3: Go live
+```bash
+git clone https://github.com/your-org/jwt-secure-api.git
+cd jwt-secure-api
+```
 
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
+The API requires three environment variables at startup. If any are missing the process will exit with a descriptive error message.
 
-## Next steps
+<Warning>
+`JWT__Key` must be **at least 32 characters** long. It is used as the HMAC-SHA256 signing key. Shorter keys will cause the API to refuse to start.
+</Warning>
 
-Now that you have your docs running, explore these key features:
+Export the variables before running:
 
-<CardGroup cols={2}>
+<CodeGroup>
 
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
+```bash macOS / Linux
+export JWT__Key="your-super-secret-key-minimum-32-chars!!"
+export JWT__Issuer="https://localhost:5001"
+export JWT__Audience="https://localhost:5001"
+```
 
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
+```powershell Windows (PowerShell)
+$env:JWT__Key      = "your-super-secret-key-minimum-32-chars!!"
+$env:JWT__Issuer   = "https://localhost:5001"
+$env:JWT__Audience = "https://localhost:5001"
+```
 
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
+</CodeGroup>
 
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
-</CardGroup>
+| Variable | Description |
+|---|---|
+| `JWT__Key` | HMAC-SHA256 signing secret. Minimum 32 characters. |
+| `JWT__Issuer` | Placed in the `iss` claim and validated on every request. |
+| `JWT__Audience` | Placed in the `aud` claim and validated on every request. |
 
 <Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
+The double-underscore (`__`) syntax maps to the `Jwt:Key`, `Jwt:Issuer`, and `Jwt:Audience` keys in `appsettings.json`. Environment variables take precedence over the config file.
 </Note>
+
+</Step>
+
+<Step title="Run the API">
+
+```bash
+dotnet run
+```
+
+On first run, the API automatically applies all pending EF Core migrations and creates `app.db` (a SQLite database) in the project directory:
+
+```
+info: Microsoft.EntityFrameworkCore.Database.Command[20101]
+      Executed DbCommand ... CREATE TABLE "Users" ...
+info: Microsoft.Hosting.Lifetime[14]
+      Now listening on: https://localhost:5001
+```
+
+<Tip>
+The SQLite database file `app.db` is created next to the project file. You can inspect it with any SQLite browser to debug token state or user records during development.
+</Tip>
+
+</Step>
+
+<Step title="Register a user">
+
+```bash
+curl -s -X POST https://localhost:5001/register \
+  -H "Content-Type: application/json" \
+  -d '{"username": "alice", "password": "Secret1!"}' \
+  -c cookies.txt
+```
+
+A successful registration returns `200 OK` with the body `Usuario creado`.
+
+**Password requirements** — all four rules are enforced. The request returns `400 Bad Request` if any are not met:
+
+| Rule | Requirement |
+|---|---|
+| Length | Minimum 8 characters |
+| Uppercase | At least 1 uppercase letter (`A`–`Z`) |
+| Digit | At least 1 numeric digit (`0`–`9`) |
+| Symbol | At least 1 non-alphanumeric character (e.g. `!`, `@`, `#`) |
+
+<Warning>
+Usernames are limited to 50 characters. Registering a username that already exists returns `400 Bad Request`.
+</Warning>
+
+</Step>
+
+<Step title="Login">
+
+```bash
+curl -s -X POST https://localhost:5001/login \
+  -H "Content-Type: application/json" \
+  -d '{"username": "alice", "password": "Secret1!"}' \
+  -c cookies.txt -b cookies.txt
+```
+
+On success the API returns `200 OK` and sets two cookies:
+
+| Cookie | Lifetime | Description |
+|---|---|---|
+| `access_token` | 15 minutes | JWT used to authenticate requests |
+| `refresh_token` | 7 days | Opaque token used to obtain a new access token |
+
+Both cookies are `HttpOnly`, `Secure`, and `SameSite=Strict`. The `-c cookies.txt` flag writes them to disk; `-b cookies.txt` sends them on subsequent requests.
+
+<Note>
+After **5 consecutive failed login attempts** the account is locked for **15 minutes**. All login attempts during the lockout window return `401 Unauthorized` with no indication of the remaining lock time, to prevent information leakage.
+</Note>
+
+</Step>
+
+<Step title="Access a protected endpoint">
+
+```bash
+curl -s https://localhost:5001/secure \
+  -b cookies.txt
+```
+
+A successful response returns `200 OK` with the body `OK`.
+
+If the `access_token` cookie is missing or expired, the API returns `401 Unauthorized`. Proceed to the next step to refresh it without logging in again.
+
+</Step>
+
+<Step title="Refresh the token">
+
+When the access token expires, exchange the refresh token for a new pair:
+
+```bash
+curl -s -X POST https://localhost:5001/refresh \
+  -c cookies.txt -b cookies.txt
+```
+
+The API performs **refresh token rotation** on every call:
+
+1. The current `refresh_token` is validated and immediately revoked.
+2. A new `access_token` (15 min) and a new `refresh_token` (7 days) are issued and written back to `cookies.txt`.
+
+<Warning>
+If a refresh token is presented after it has already been used — indicating possible token theft — the API revokes **every token in the same token family** and forces the user to log in again. This is refresh token reuse detection.
+</Warning>
+
+<Tip>
+A token family (`FamilyId`) is created at login and inherited across all rotations within that session. Use `POST /logout-all` to revoke all active tokens for the authenticated user across every device at once.
+</Tip>
+
+</Step>
+
+<Step title="Logout">
+
+Revoke the current session and clear both cookies:
+
+```bash
+curl -s -X POST https://localhost:5001/logout \
+  -b cookies.txt -c cookies.txt
+```
+
+The server marks the `refresh_token` as revoked in the database and instructs the client to delete both cookies. Any subsequent request with the old tokens returns `401 Unauthorized`.
+
+To invalidate all sessions across every device at once:
+
+```bash
+curl -s -X POST https://localhost:5001/logout-all \
+  -b cookies.txt -c cookies.txt
+```
+
+</Step>
+
+</Steps>

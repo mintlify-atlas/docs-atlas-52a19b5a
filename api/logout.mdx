@@ -1,0 +1,53 @@
+---
+title: "POST /logout"
+description: "Revoke the current refresh token and clear session cookies"
+---
+
+## Overview
+
+| Property      | Value                                  |
+| ------------- | -------------------------------------- |
+| Method        | `POST`                                 |
+| Path          | `/logout`                              |
+| Auth required | Yes (`access_token` cookie)            |
+| Rate limited  | No                                     |
+| Base URL      | `https://localhost:5001`               |
+
+## Request
+
+This endpoint requires no request body. The `access_token` cookie must be present and valid. The `refresh_token` cookie, if present, will be revoked.
+
+### Cookies
+
+| Cookie          | Required | Description                                   |
+| --------------- | -------- | --------------------------------------------- |
+| `access_token`  | Yes      | Valid JWT used to authorize the request.      |
+| `refresh_token` | No       | If present, the token is revoked before deletion. |
+
+### Example request
+
+```bash
+curl --request POST \
+  --url https://localhost:5001/logout \
+  --cookie cookies.txt
+```
+
+## Behavior
+
+When called with a valid `access_token`:
+
+1. The `refresh_token` cookie value is read from the request.
+2. If a matching token is found in the database, it is marked as revoked (`IsRevoked = true`, `RevokedAt` set to the current UTC time).
+3. Both the `access_token` and `refresh_token` cookies are deleted from the response.
+
+After a successful logout, subsequent requests using the old cookies will be rejected.
+
+## Responses
+
+### 200 OK
+
+Logout succeeded. Both session cookies are cleared. The response body is empty.
+
+### 401 Unauthorized
+
+Returned when the `access_token` cookie is missing, expired, or invalid.

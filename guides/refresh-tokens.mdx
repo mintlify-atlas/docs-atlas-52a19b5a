@@ -1,0 +1,126 @@
+---
+title: "Refresh tokens"
+description: "Rotate access tokens without re-authenticating using the POST /refresh endpoint"
+---
+
+When the `access_token` cookie expires, call `POST /refresh` to obtain a new token pair without requiring the user to log in again. The `refresh_token` cookie is automatically rotated on every call.
+
+## How it works
+
+<Steps>
+  <Step title="Send the refresh_token cookie">
+    The browser (or HTTP client) sends the `refresh_token` cookie with the request. No request body is needed.
+  </Step>
+  <Step title="Token is validated">
+    The API looks up the token in the database. It checks that the token exists, is not revoked, and has not expired.
+  </Step>
+  <Step title="Old token is revoked">
+    The current `refresh_token` is immediately marked as `IsRevoked = true` in the database.
+  </Step>
+  <Step title="New token pair is issued">
+    A new `access_token` (JWT, 15 min) and a new `refresh_token` (7 days) are generated. The new refresh token inherits the `FamilyId` from the old one.
+  </Step>
+  <Step title="Cookies are updated">
+    Both `access_token` and `refresh_token` cookies are overwritten with the new values.
+  </Step>
+</Steps>
+
+## Request
+
+```bash
+POST https://localhost:5001/refresh
+```
+
+No request body is required. The `refresh_token` cookie must be present.
+
+### Optional headers
+
+| Header | Max length | Description |
+|---|---|---|
+| `X-Device-Id` | 128 characters | Stored with the new refresh token for device context |
+| `User-Agent` | — | Captured automatically and stored with the new token |
+
+## Curl example
+
+```bash
+# Login first to get cookies
+curl -k -c cookies.txt -X POST https://localhost:5001/login \
+  -H "Content-Type: application/json" \
+  -d '{"Username": "alice", "Password": "Tr0ub4dor&3"}'
+
+# Refresh the token pair using the saved cookies
+curl -k -b cookies.txt -c cookies.txt -X POST https://localhost:5001/refresh
+```
+
+The `-b cookies.txt` flag sends existing cookies; `-c cookies.txt` saves the updated cookies back to the same file.
+
+## Responses
+
+### 200 OK — success
+
+The response body is empty. Both cookies are updated:
+
+```
+HTTP/1.1 200 OK
+Set-Cookie: access_token=<new-jwt>; max-age=900; path=/; secure; samesite=strict; httponly
+Set-Cookie: refresh_token=<new-token>; max-age=604800; path=/; secure; samesite=strict; httponly
+```
+
+### 401 Unauthorized
+
+Returned when:
+
+| Condition | Detail |
+|---|---|
+| `refresh_token` cookie is missing | Request has no cookie to validate |
+| Token not found in database | Token value does not match any stored record |
+| Token is revoked | `IsRevoked = true` — also triggers family revocation (see below) |
+| Token is expired | `ExpiryDate < UtcNow` |
+
+## Token rotation
+
+Each call to `POST /refresh` generates a completely new refresh token. The old token is revoked before the new one is issued.
+
+```
+Refresh token chain (same FamilyId across all rotations):
+
+  Login         Refresh #1        Refresh #2
+  ──────────    ──────────────    ──────────────
+  token-A  ──> token-A revoked   token-B revoked
+               token-B issued ──> token-C issued
+
+  All share the same FamilyId.
+```
+
+<Note>
+  The new refresh token stores the device ID, IP address, and User-Agent from the **current request**, not from the original login. This keeps session context up to date as devices change networks.
+</Note>
+
+## Reuse detection
+
+If a refresh token that has already been revoked is submitted again, the API treats it as a potential token theft and **revokes the entire token family**.
+
+```csharp
+// AuthService.cs — GetUserFromRefreshToken
+if (stored.IsRevoked)
+{
+    await RevokeFamilyAsync(stored.FamilyId);
+    return null;
+}
+```
+
+<Warning>
+  When token reuse is detected, all active refresh tokens sharing the same `FamilyId` are revoked. This ends the session on every device in that login session. The user must log in again.
+</Warning>
+
+### Attack scenario this prevents
+
+1. Attacker steals `refresh_token` from a compromised device.
+2. Legitimate user calls `POST /refresh` first — token-A is revoked, token-B is issued.
+3. Attacker later attempts to use token-A (now revoked).
+4. The API detects reuse, revokes the entire family (including token-B), and returns `401`.
+5. Both the attacker and the legitimate user are signed out. The user is alerted implicitly by the forced re-login.
+
+## Automatic token cleanup
+
+A background service (`TokenCleanupService`) runs every **6 hours** and deletes refresh tokens that have been expired for more than 1 day. This keeps the database lean without affecting active sessions.

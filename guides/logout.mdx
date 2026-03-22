@@ -1,0 +1,138 @@
+---
+title: "Logout"
+description: "End user sessions by revoking tokens and clearing cookies"
+---
+
+JWT Secure API provides two logout endpoints. Both require an authenticated `access_token` cookie. Both delete the `access_token` and `refresh_token` cookies from the client.
+
+<CardGroup cols={2}>
+  <Card title="POST /logout" icon="arrow-right-from-bracket">
+    Revokes the current refresh token only. Signs out the current device/session.
+  </Card>
+  <Card title="POST /logout-all" icon="circle-xmark">
+    Revokes every active refresh token for the user. Signs out all devices simultaneously.
+  </Card>
+</CardGroup>
+
+## POST /logout — single session
+
+Revokes the `refresh_token` cookie sent with the request, then deletes both cookies.
+
+### Request
+
+```bash
+POST https://localhost:5001/logout
+```
+
+No request body. The `access_token` and `refresh_token` cookies must be present.
+
+### Curl example
+
+```bash
+# Login first to get cookies
+curl -k -c cookies.txt -X POST https://localhost:5001/login \
+  -H "Content-Type: application/json" \
+  -d '{"Username": "alice", "Password": "Tr0ub4dor&3"}'
+
+# Logout from the current session
+curl -k -b cookies.txt -c cookies.txt -X POST https://localhost:5001/logout
+```
+
+### What happens server-side
+
+<Steps>
+  <Step title="Validate access token">
+    The `access_token` cookie is validated by the JWT middleware. If missing or expired, the request is rejected with `401`.
+  </Step>
+  <Step title="Revoke refresh token">
+    The `refresh_token` cookie value is looked up in the database and marked `IsRevoked = true` with a `RevokedAt` timestamp.
+  </Step>
+  <Step title="Delete cookies">
+    Both `access_token` and `refresh_token` cookies are deleted from the client by issuing `Set-Cookie` headers with an expired `Max-Age`.
+  </Step>
+</Steps>
+
+### Responses
+
+| Status | Condition |
+|---|---|
+| `200 OK` | Logout successful. Cookies are cleared. |
+| `401 Unauthorized` | `access_token` cookie is missing, expired, or invalid. |
+
+```
+HTTP/1.1 200 OK
+Set-Cookie: access_token=; max-age=0; path=/
+Set-Cookie: refresh_token=; max-age=0; path=/
+```
+
+<Note>
+  If the `refresh_token` cookie is absent at logout time (e.g. already expired), the endpoint still succeeds — the cookie deletion step runs regardless.
+</Note>
+
+## POST /logout-all — all sessions
+
+Revokes **every** active refresh token for the authenticated user, across all devices and sessions. Requires a valid `access_token` to identify the user.
+
+### Request
+
+```bash
+POST https://localhost:5001/logout-all
+```
+
+No request body. The `access_token` cookie is required for authentication.
+
+### Curl example
+
+```bash
+# Login first to get cookies
+curl -k -c cookies.txt -X POST https://localhost:5001/login \
+  -H "Content-Type: application/json" \
+  -d '{"Username": "alice", "Password": "Tr0ub4dor&3"}'
+
+# Logout from all devices
+curl -k -b cookies.txt -c cookies.txt -X POST https://localhost:5001/logout-all
+```
+
+### What happens server-side
+
+<Steps>
+  <Step title="Extract user identity">
+    The user ID is read from the `sub` claim in the validated `access_token` JWT.
+  </Step>
+  <Step title="Revoke all refresh tokens">
+    Every `RefreshToken` record in the database where `UserId` matches and `IsRevoked = false` is updated to `IsRevoked = true`.
+  </Step>
+  <Step title="Delete cookies">
+    Both cookies are deleted from the current client.
+  </Step>
+</Steps>
+
+```csharp
+// AuthService.cs — RevokeAllUserTokensAsync
+var tokens = await _db.RefreshTokens
+    .Where(x => x.UserId == userId && !x.IsRevoked)
+    .ToListAsync();
+
+foreach (var t in tokens)
+{
+    t.IsRevoked = true;
+    t.RevokedAt = DateTime.UtcNow;
+}
+```
+
+### Responses
+
+| Status | Condition |
+|---|---|
+| `200 OK` | All tokens revoked. Cookies cleared. |
+| `401 Unauthorized` | `access_token` cookie is missing, expired, or does not contain a valid user ID claim. |
+
+## After logout
+
+<Warning>
+  After calling either logout endpoint, any attempt to access a protected route with the old `access_token` will continue to succeed until the token's natural 15-minute expiry. JWTs are stateless and cannot be individually invalidated.
+
+  To minimize this window, keep the access token lifetime short (default: 15 minutes).
+</Warning>
+
+To fully re-authenticate, the user must call `POST /login` again with their credentials.
