@@ -1,0 +1,83 @@
+{
+  "projectType": "api-service",
+  "projectName": "JWT Secure API",
+  "projectDescription": "A secure ASP.NET Core REST API providing JWT-based authentication with refresh token rotation, device tracking, account lockout, and rate limiting.",
+  "theme": "sequoia",
+  "primaryColor": "#1E3A5F",
+  "lightColor": "#2E6DA4",
+  "darkColor": "#0F1E33",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": ["introduction", "quickstart"]
+          },
+          {
+            "group": "Authentication",
+            "pages": [
+              "guides/auth-overview",
+              "guides/registration",
+              "guides/login",
+              "guides/refresh-tokens",
+              "guides/logout"
+            ]
+          },
+          {
+            "group": "Security",
+            "pages": [
+              "guides/account-lockout",
+              "guides/rate-limiting",
+              "guides/token-family"
+            ]
+          },
+          {
+            "group": "Configuration",
+            "pages": [
+              "guides/configuration",
+              "guides/environment-variables"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Endpoints",
+            "pages": [
+              "api/register",
+              "api/login",
+              "api/refresh",
+              "api/logout",
+              "api/logout-all",
+              "api/secure"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "JWT access tokens with configurable short expiry (default 10 minutes)",
+    "Secure HTTP-only cookie-based token storage (access_token + refresh_token)",
+    "Refresh token rotation with 7-day expiry",
+    "Token family tracking for refresh token reuse detection",
+    "Account lockout after 5 failed login attempts (15-minute lock)",
+    "Rate limiting on auth endpoints (5 requests/minute per IP)",
+    "Device and IP tracking on refresh tokens",
+    "Global logout (revoke all tokens across all devices)",
+    "Automatic background cleanup of expired tokens every 6 hours",
+    "BCrypt password hashing with user enumeration protection"
+  ],
+  "publicApiSurface": [
+    "POST /register",
+    "POST /login",
+    "POST /refresh",
+    "POST /logout",
+    "POST /logout-all",
+    "GET /secure"
+  ]
+}
